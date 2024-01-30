@@ -6,6 +6,8 @@ from pygame.locals import *
 import time
 import pickle
 import random
+import numba 
+from numba import jit
 pygame.mixer.pre_init(44100, -16, 2, 512) # setup mixer to avoid sound lag
 pygame.init() #initializes pygame
 
@@ -21,8 +23,8 @@ total_collisions = 0;
 verbose_collision = 0;
 
 #FORCE VARIABLES TO CONSIDER:
-gravity_acceleration = -1250; #this is the acceleration due to gravity in units per second squared.
-elasticity = 0.95 # 1 means perfectly elastic, 0 means perfectly inelastic.
+gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
+elasticity = 1#1 means perfectly elastic, 0 means perfectly inelastic.
 
 
 #BOUNDING BOX DETAILS:
@@ -54,9 +56,6 @@ def boundary_collision_check(obj):
         obj.velocity[0] = - elasticity * obj.velocity[0];
         collided = True;
     return collided;
-
-
-
 
 def lerp(a, b, t):
     if(t > 1):
@@ -133,7 +132,6 @@ class particle(GameObject):
     def draw(self, screen = screen):
         pygame.draw.circle(screen, self.color, self.get_pixel_pos(), self.radius);
 
-
 class Camera(GameObject):
     def __init__(self, x, y, width, height):
         super().__init__(x, y, width, height);
@@ -192,6 +190,29 @@ def check_all_collisions():
             g0 = GameObject.all_gameObjects[i]; g1 = GameObject.all_gameObjects[j];
             handle_collision(g0, g1);
 
+pixel_densities = np.zeros((screen_width, screen_height));
+
+@jit(nopython=True)
+def light_up_nearby_pixels(pixpos, radius, pixel_densities):
+    #light up the nearby pixels on our screen.
+    for i in range(max(0, pixpos[0] - radius), min(screen_width, pixpos[0] + radius)):
+        for j in range(max(0, pixpos[1] - radius), min(screen_height, pixpos[1] + radius)):
+            dist_square = (pixpos[0] - i)**2 + (pixpos[1] - j)**2;
+            dist = np.sqrt(dist_square);
+            if(dist < radius):
+                brightness = (1/((dist/radius)**2 + 1) - 0.5); 
+                pixel_densities[i][j] += brightness;
+
+# @jit(nopython=True)
+def light_all_pixels():
+    global pixel_densities;
+    pixel_densities.fill(0);
+    for obj in GameObject.all_gameObjects:
+        if(obj.hidden):
+            continue;
+        pixpos = obj.get_pixel_pos();
+        light_up_nearby_pixels(pixpos, 200, pixel_densities); #, lambda x: (1 - x/30));
+    #print(pixel_densities.max());
 
 main_camera = Camera(0, 0, screen_width, screen_height); #the one camera that the game will use to render objects on the screen.
 GameObject.all_gameObjects.pop(); #we remove the camera from the list of gameobjects, since we do not want to loop over it.
@@ -216,12 +237,21 @@ def get_random_vector2(lim):
 # p2 = particle(400, 100, 50);
 # p2.color = (0, 255, 0);
 # p2.set_velocity([-100, 0]);
-for i in range(60):
+for i in range(2):
     get_random_particle();
+
+def render_blobs(surface):
+    pixarray = np.clip(pixel_densities, a_min=0, a_max=1);
+    pixarray = (pixarray * 255).astype(np.uint8);
+    # print(pixarray.max());
+    pixarray = np.repeat(pixarray[:, :, np.newaxis], 3, axis=2)
+    pygame.surfarray.blit_array(surface, pixarray)
+
 
 def main():
     prev_time = pygame.time.get_ticks();
     cur_mode = 0;
+    surface = pygame.Surface((screen_width, screen_height));
     modes = ["play", "pause"];
     while True:
         clock.tick(framerate) #sets framerate to 60 fps
@@ -229,6 +259,8 @@ def main():
         curtime = pygame.time.get_ticks();
         dt = curtime - prev_time;
         prev_time = pygame.time.get_ticks();
+        light_all_pixels();
+        render_blobs(surface);
         if(dt != 0):
             print("FPS:", 1000/dt, "dt:", dt, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
@@ -236,8 +268,11 @@ def main():
             for obj in GameObject.all_gameObjects:
                 obj.fixed_update(1/framerate);
             check_all_collisions();
+        
+        screen.blit(surface, (0,0))
         for obj in GameObject.all_gameObjects:
             obj.update(dt); #we run the update function for all our gameobjects. ALTHOUGH we should probably do this only for the main player.
+        
         pygame.display.flip(); 
         for event in pygame.event.get():
             if event.type == QUIT:
