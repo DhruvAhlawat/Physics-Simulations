@@ -6,10 +6,19 @@ from pygame.locals import *
 import time
 import pickle
 import random
-import numba 
-from numba import jit
+# import numba 
+# from numba import jit
 pygame.mixer.pre_init(44100, -16, 2, 512) # setup mixer to avoid sound lag
 pygame.init() #initializes pygame
+
+## USAGE: python3 multibody.py [total_particles]
+## ESC to quit, P to pause, R to reset.
+physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
+## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
+
+framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
+gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
+elasticity = 0.8#1 means perfectly elastic, 0 means perfectly inelastic.
 
 clock = pygame.time.Clock()
 screen_width = 720; 
@@ -17,15 +26,11 @@ screen_height = 720;
 screen = pygame.display.set_mode((screen_width, screen_height)) #creates screen
 pygame.mouse.set_visible(0);
 # bg = pygame.image.load("./images/bubble2_large.jpg") #loads background image
-framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
 fixed_delta_seconds = 1/framerate;
-total_collisions = 0;
-verbose_collision = 0;
-
+total_particles = 30;
+if(len(sys.argv) > 1):
+    total_particles = int(sys.argv[1]);
 #FORCE VARIABLES TO CONSIDER:
-gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
-elasticity = 1#1 means perfectly elastic, 0 means perfectly inelastic.
-
 
 #BOUNDING BOX DETAILS:
 #the bounding box is a rectangle that is aligned with the x and y axes.
@@ -100,6 +105,7 @@ class GameObject: #the ultimate class for all objects to derive from
         if(self.isStatic):
             return; #no calculation for static objects.
         #first we add the gravity force.
+        #We can only do this step IF our object isn't being blocked by something below it.
         self.velocity[1] += gravity_acceleration*dt; #we add the gravity force to the velocity.
         #now we add the velocity to the position.
         self.pos += self.velocity*dt; #we add the velocity to the position.
@@ -145,9 +151,6 @@ class Camera(GameObject):
         self.smoothing = 5; #the smoothing factor for the camera's movement.
     def get_screen_rect(self):
         return pygame.Rect(self.x - self.width/2, self.y - self.height/2, self.width, self.height);
-    
-    #def update(self, dt):
-    #    super().update(dt);
 
     def set_focus_area(self, target):
         self.x = target[0] - self.width/2;
@@ -156,7 +159,7 @@ class Camera(GameObject):
 #    def pad_reposition(self, rect:pygame.rect):
         #if the rect is going out of bounds then we shall move the camera as well, with some lerp attached to it.
     
-def check_all_collisions():
+def check_all_collisions(dt = 1/framerate):
     def handle_collision(g0, g1):
         dist = np.linalg.norm(g0.pos - g1.pos) 
         global elasticity;
@@ -175,10 +178,15 @@ def check_all_collisions():
             e = elasticity;
             v1f = (v1*(m1 - e*m0) + (1+e)*m0*v0)/(m1 + m0);
             v0f = (v0*(m0 - e*m1) + (1+e)*m1*v1)/(m1 + m0);
-            g0.velocity += (v0f - v0)*normal;
+            g0.velocity += (v0f - v0)*normal ;
             g1.velocity += (v1f - v1)*normal;
+            #g0.velocity[1] -= gravity_acceleration*dt; #we simply remove the effect of gravity on the object for this frame.
+            #g1.velocity[1] -= gravity_acceleration*dt;
             # print("velocities updated as", g0.velocity, g1.velocity);
+            # at the same time we also remove the effect of gravity on them for this particular frame.
             return True;
+        else:
+            return False;
     for i in range(len(GameObject.all_gameObjects)):
         for j in range(i+1, len(GameObject.all_gameObjects)):
             if(not (GameObject.all_gameObjects[i].collision_layer & GameObject.all_gameObjects[j].collision_layer_mask)):
@@ -192,15 +200,16 @@ def check_all_collisions():
 
 pixel_densities = np.zeros((screen_width, screen_height));
 
-@jit(nopython=True)
+# @jit(nopython=True)
 def light_up_nearby_pixels(pixpos, radius, pixel_densities):
     #light up the nearby pixels on our screen.
+    area = radius*(2.1416);
     for i in range(max(0, pixpos[0] - radius), min(screen_width, pixpos[0] + radius)):
         for j in range(max(0, pixpos[1] - radius), min(screen_height, pixpos[1] + radius)):
             dist_square = (pixpos[0] - i)**2 + (pixpos[1] - j)**2;
             dist = np.sqrt(dist_square);
             if(dist < radius):
-                brightness = (1/((dist/radius)**2 + 1) - 0.5); 
+                brightness = (50/((dist/radius)**2 + 1) - 0.5)/area; 
                 pixel_densities[i][j] += brightness;
 
 # @jit(nopython=True)
@@ -211,7 +220,7 @@ def light_all_pixels():
         if(obj.hidden):
             continue;
         pixpos = obj.get_pixel_pos();
-        light_up_nearby_pixels(pixpos, 200, pixel_densities); #, lambda x: (1 - x/30));
+        light_up_nearby_pixels(pixpos, 1500, pixel_densities); #, lambda x: (1 - x/30));
     #print(pixel_densities.max());
 
 main_camera = Camera(0, 0, screen_width, screen_height); #the one camera that the game will use to render objects on the screen.
@@ -223,7 +232,8 @@ print("loading world")
 
 
 def get_random_particle():
-    p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height), random.uniform(15, 35));
+    r = random.uniform(15, 35);
+    p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, r**2);
     p.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
     p.set_velocity(get_random_vector2(400));
     return p;
@@ -237,7 +247,7 @@ def get_random_vector2(lim):
 # p2 = particle(400, 100, 50);
 # p2.color = (0, 255, 0);
 # p2.set_velocity([-100, 0]);
-for i in range(2):
+for i in range(total_particles):
     get_random_particle();
 
 def render_blobs(surface):
@@ -247,33 +257,36 @@ def render_blobs(surface):
     pixarray = np.repeat(pixarray[:, :, np.newaxis], 3, axis=2)
     pygame.surfarray.blit_array(surface, pixarray)
 
-
 def main():
     prev_time = pygame.time.get_ticks();
     cur_mode = 0;
-    surface = pygame.Surface((screen_width, screen_height));
+    #surface = pygame.Surface((screen_width, screen_height));
     modes = ["play", "pause"];
+    step_frame = 0;
     while True:
-        clock.tick(framerate) #sets framerate to 60 fps
-        screen.fill(0) #fills screen with black
+        clock.tick(physics_multiplier*framerate) #sets framerate to 60 fps
         curtime = pygame.time.get_ticks();
         dt = curtime - prev_time;
         prev_time = pygame.time.get_ticks();
-        light_all_pixels();
-        render_blobs(surface);
+        # light_all_pixels();
+        # render_blobs(surface);
         if(dt != 0):
             print("FPS:", 1000/dt, "dt:", dt, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         if(cur_mode == 0):
             for obj in GameObject.all_gameObjects:
-                obj.fixed_update(1/framerate);
+                obj.fixed_update(1/(physics_multiplier*framerate));
             check_all_collisions();
         
-        screen.blit(surface, (0,0))
-        for obj in GameObject.all_gameObjects:
-            obj.update(dt); #we run the update function for all our gameobjects. ALTHOUGH we should probably do this only for the main player.
+        # screen.blit(surface, (0,0))
+        if(step_frame%physics_multiplier == 0):
+            step_frame = 0;
+            screen.fill(0) #fills screen with black
+            for obj in GameObject.all_gameObjects:
+                obj.update(dt); #we run the update function for all our gameobjects. ALTHOUGH we should probably do this only for the main player.
         
         pygame.display.flip(); 
+        step_frame += 1;
         for event in pygame.event.get():
             if event.type == QUIT:
                 pygame.quit()
@@ -288,6 +301,12 @@ def main():
                     cur_mode = (cur_mode + 1)%len(modes); 
                     print("switched to ", modes[cur_mode]);
                     pass;
+                if event.key == K_r:
+                    print("resetting");
+                    for obj in GameObject.all_gameObjects:
+                        obj.pos[0] = random.uniform(0, screen_width);
+                        obj.pos[1] = random.uniform(0, screen_height);
+                        obj.velocity = get_random_vector2(400);
                     #player_square.velocity[1] += 200;
                     #player_square.velocity[0] += 200;
 if __name__ == "__main__":
