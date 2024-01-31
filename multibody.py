@@ -12,14 +12,17 @@ pygame.mixer.pre_init(44100, -16, 2, 512) # setup mixer to avoid sound lag
 pygame.init() #initializes pygame
 
 ## USAGE: python3 multibody.py [total_particles]
-## ESC to quit, P to pause, R to reset.
+## ESC to quit, P to pause, R to reset. Right arrow key to step one (display)frame ahead when paused.
 physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
+enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
+enable_gravity = False;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
 gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
-elasticity = 0.8#1 means perfectly elastic, 0 means perfectly inelastic.
-
+elasticity = 1 # 1 means perfectly elastic, 0 means perfectly inelastic.
+## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
+slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
 clock = pygame.time.Clock()
 screen_width = 720; 
 screen_height = 720;
@@ -31,7 +34,8 @@ total_particles = 30;
 if(len(sys.argv) > 1):
     total_particles = int(sys.argv[1]);
 #FORCE VARIABLES TO CONSIDER:
-
+if(enable_gravity == False):
+    gravity_acceleration = 0;
 #BOUNDING BOX DETAILS:
 #the bounding box is a rectangle that is aligned with the x and y axes.
 lower_boundary = 0;
@@ -136,6 +140,9 @@ class particle(GameObject):
         self.color = color;
 
     def draw(self, screen = screen):
+        if(enable_dynamic_colors):
+            velmag = np.linalg.norm(self.velocity);
+            self.color = tuple(lerp(slow_color, fast_color, np.sqrt(velmag)/25));
         pygame.draw.circle(screen, self.color, self.get_pixel_pos(), self.radius);
 
 class Camera(GameObject):
@@ -256,13 +263,12 @@ def render_blobs(surface):
     # print(pixarray.max());
     pixarray = np.repeat(pixarray[:, :, np.newaxis], 3, axis=2)
     pygame.surfarray.blit_array(surface, pixarray)
-
 def main():
     prev_time = pygame.time.get_ticks();
     cur_mode = 0;
     #surface = pygame.Surface((screen_width, screen_height));
     modes = ["play", "pause"];
-    step_frame = 0;
+    step_frame = 0; played_next_step = False;
     while True:
         clock.tick(physics_multiplier*framerate) #sets framerate to 60 fps
         curtime = pygame.time.get_ticks();
@@ -276,9 +282,12 @@ def main():
         if(cur_mode == 0):
             for obj in GameObject.all_gameObjects:
                 obj.fixed_update(1/(physics_multiplier*framerate));
-            check_all_collisions();
+            check_all_collisions(1/(physics_multiplier*framerate));
         
         # screen.blit(surface, (0,0))
+        if(played_next_step == True and step_frame == physics_multiplier):
+            played_next_step = False;
+            cur_mode = 1; #pausing the game again after rendering the next frame. 
         if(step_frame%physics_multiplier == 0):
             step_frame = 0;
             screen.fill(0) #fills screen with black
@@ -309,6 +318,13 @@ def main():
                         obj.velocity = get_random_vector2(400);
                     #player_square.velocity[1] += 200;
                     #player_square.velocity[0] += 200;
+                if event.key == K_RIGHT:
+                    if(cur_mode == 1): #Then we need to step one frame ahead. 
+                        played_next_step = True;
+                        cur_mode = 0;
+                        pass;
+
+
 if __name__ == "__main__":
     start = time.time();
     main();
