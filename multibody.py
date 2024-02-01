@@ -13,16 +13,18 @@ pygame.init() #initializes pygame
 
 ## USAGE: python3 multibody.py [total_particles]
 ## ESC to quit, P to pause, R to reset. Right arrow key to step one (display)frame ahead when paused.
-physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
+physics_multiplier = 1; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
 enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
 enable_gravity = False;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
 gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
-elasticity = 1 # 1 means perfectly elastic, 0 means perfectly inelastic.
+elasticity =  1 #means perfectly elastic, 0 means perfectly inelastic.
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
 slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
+particle_radius_range = (15, 35); 
+mean_radius = 25; std_radius = 7;
 clock = pygame.time.Clock()
 screen_width = 720; 
 screen_height = 720;
@@ -239,7 +241,8 @@ print("loading world")
 
 
 def get_random_particle():
-    r = random.uniform(15, 35);
+    r = random.gauss(mean_radius, std_radius);
+    r = max(r, particle_radius_range[0]); r = min(r, particle_radius_range[1]);
     p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, r**2);
     p.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
     p.set_velocity(get_random_vector2(400));
@@ -249,11 +252,7 @@ def get_random_particle():
 def get_random_vector2(lim):
     return np.array([random.uniform(-lim, lim), random.uniform(-lim, lim)]);
 
-# p1 = particle(100, 100, 50);
-# p1.color = (255, 0, 0);
-# p2 = particle(400, 100, 50);
-# p2.color = (0, 255, 0);
-# p2.set_velocity([-100, 0]);
+## Create randomized particles here.
 for i in range(total_particles):
     get_random_particle();
 
@@ -276,8 +275,8 @@ def main():
         prev_time = pygame.time.get_ticks();
         # light_all_pixels();
         # render_blobs(surface);
-        if(dt != 0):
-            print("FPS:", 1000/dt, "dt:", dt, "ms")
+        #if(dt != 0):
+        #    print("FPS:", 1000/dt, "dt:", dt, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         if(cur_mode == 0):
             for obj in GameObject.all_gameObjects:
