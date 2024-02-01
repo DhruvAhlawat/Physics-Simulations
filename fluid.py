@@ -16,23 +16,23 @@ pygame.init() #initializes pygame
 physics_multiplier = 1; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
+electrostatic_force_constant = 1000000;
 enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
-enable_gravity = False;
+enable_gravity = True;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
-gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
-elasticity =  1 #means perfectly elastic, 0 means perfectly inelastic.
+gravity_acceleration = -750; #this is the acceleration due to gravity in units per second squared.
+elasticity =  0.9 #means perfectly elastic, 0 means perfectly inelastic.
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
 slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
-particle_radius_range = (15, 35); 
-mean_radius = 25; std_radius = 7;
+particle_radius = 20; 
 clock = pygame.time.Clock()
 screen_width = 720; 
-screen_height = 720;
+screen_height = 720; 
 screen = pygame.display.set_mode((screen_width, screen_height)) #creates screen
-pygame.mouse.set_visible(0);
+pygame.mouse.set_visible(0); 
 # bg = pygame.image.load("./images/bubble2_large.jpg") #loads background image
-fixed_delta_seconds = 1/framerate;
-total_particles = 30;
+fixed_delta_seconds = 1/framerate; 
+total_particles = 30; 
 if(len(sys.argv) > 1):
     total_particles = int(sys.argv[1]);
 #FORCE VARIABLES TO CONSIDER:
@@ -140,6 +140,7 @@ class particle(GameObject):
         super().__init__(x, y, radius, radius, mass, id);
         self.radius = radius;
         self.color = color;
+        self.charge = 1;
 
     def draw(self, screen = screen):
         if(enable_dynamic_colors):
@@ -169,7 +170,7 @@ class Camera(GameObject):
 #    def pad_reposition(self, rect:pygame.rect):
         #if the rect is going out of bounds then we shall move the camera as well, with some lerp attached to it.
     
-def check_all_collisions(dt = 1/framerate):
+def check_all_forces(dt = 1/framerate):
     def handle_collision(g0, g1):
         dist = np.linalg.norm(g0.pos - g1.pos) 
         global elasticity;
@@ -197,6 +198,18 @@ def check_all_collisions(dt = 1/framerate):
             return True;
         else:
             return False;
+    
+    def handle_electromagnetic_force(g0, g1):
+        dist = np.linalg.norm(g0.pos - g1.pos) 
+        if(dist > 5):
+            force = electrostatic_force_constant / (dist**2);
+            direction = (g0.pos - g1.pos)/dist;
+            g0.velocity += force*direction*dt/g0.mass;
+            g1.velocity -= force*direction*dt/g1.mass;
+            return True;
+        else:
+            return False;
+    
     for i in range(len(GameObject.all_gameObjects)):
         for j in range(i+1, len(GameObject.all_gameObjects)):
             if(not (GameObject.all_gameObjects[i].collision_layer & GameObject.all_gameObjects[j].collision_layer_mask)):
@@ -206,9 +219,10 @@ def check_all_collisions(dt = 1/framerate):
             if(GameObject.all_gameObjects[i].isCamera or GameObject.all_gameObjects[j].isCamera):
                 continue;
             g0 = GameObject.all_gameObjects[i]; g1 = GameObject.all_gameObjects[j];
-            handle_collision(g0, g1);
+            # handle_collision(g0, g1);
+            handle_electromagnetic_force(g0, g1);
 
-pixel_densities = np.zeros((screen_width, screen_height));
+#pixel_densities = np.zeros((screen_width, screen_height));
 
 # @jit(nopython=True)
 def light_up_nearby_pixels(pixpos, radius, pixel_densities):
@@ -240,22 +254,29 @@ main_camera.hidden = True; main_camera.isStatic = True; #we don't want to do phy
 playerpos = [];
 print("loading world")
 
+def get_similar_particle():
+    global particle_radius;
+    r = particle_radius
+    p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, (r/particle_radius)**2);
+    p.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
+    # p.set_velocity(get_random_vector2(400));
+    return p;
 
 def get_random_particle():
-    r = random.gauss(mean_radius, std_radius);
-    r = max(r, particle_radius_range[0]); r = min(r, particle_radius_range[1]);
-    p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, r**2);
+    r = random.gauss(particle_radius, 10);
+    #r = max(r, particle_radius_range[0]); r = min(r, particle_radius_range[1]);
+    p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, (r/particle_radius)**2);
     p.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
     p.set_velocity(get_random_vector2(400));
     return p;
-
 
 def get_random_vector2(lim):
     return np.array([random.uniform(-lim, lim), random.uniform(-lim, lim)]);
 
 ## Create randomized particles here.
 for i in range(total_particles):
-    get_random_particle();
+    # get_random_particle();
+    get_similar_particle();
 
 def render_blobs(surface):
     pixarray = np.clip(pixel_densities, a_min=0, a_max=1);
@@ -280,9 +301,9 @@ def main():
         #    print("FPS:", 1000/dt, "dt:", dt, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         if(cur_mode == 0):
+            check_all_forces(1/(physics_multiplier*framerate));
             for obj in GameObject.all_gameObjects:
                 obj.fixed_update(1/(physics_multiplier*framerate));
-            check_all_collisions(1/(physics_multiplier*framerate));
         
         # screen.blit(surface, (0,0))
         if(played_next_step == True and step_frame == physics_multiplier):
