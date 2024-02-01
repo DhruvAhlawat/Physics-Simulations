@@ -13,11 +13,11 @@ pygame.init() #initializes pygame
 
 ## USAGE: python3 multibody.py [total_particles]
 ## ESC to quit, P to pause, R to reset. Right arrow key to step one (display)frame ahead when paused.
-physics_multiplier = 1; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
+physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
 enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
-enable_gravity = False;
+enable_gravity = True;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
 gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
 
@@ -26,8 +26,8 @@ if(enable_gravity and elasticity == 1):
     elasticity = 0.9;
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
 slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
-particle_radius_range = (5,15); 
-mean_radius = 15; std_radius = 0;
+particle_radius_range = (10,20); 
+mean_radius = 15; std_radius = 5;
 clock = pygame.time.Clock()
 screen_width = 720; 
 screen_height = 720;
@@ -35,7 +35,7 @@ screen = pygame.display.set_mode((screen_width, screen_height)) #creates screen
 pygame.mouse.set_visible(0);
 # bg = pygame.image.load("./images/bubble2_large.jpg") #loads background image
 fixed_delta_seconds = 1/framerate;
-total_particles = 30;
+total_particles = 100;
 if(len(sys.argv) > 1):
     total_particles = int(sys.argv[1]);
 #FORCE VARIABLES TO CONSIDER:
@@ -327,7 +327,7 @@ def get_random_vector2(lim):
     return np.array([random.uniform(-lim, lim), random.uniform(-lim, lim)]);
 
 def shoot_particle(init_pos, init_vel, radius, mass, color):
-    p = particle(init_pos[0], init_pos[1], radius, mass, color=color);
+    p = get_random_particle(); p.set_position(init_pos);
     p.set_velocity(init_vel);
 
 
@@ -359,20 +359,20 @@ def main():
     particles_left = total_particles;
     while True:
         clock.tick(physics_multiplier*framerate) #sets framerate to 60 fps
-        if(cur_shoot_frame == delay_between_shooting):
+        if(cur_shoot_frame == delay_between_shooting and step_frame%physics_multiplier == 0):
             cur_shoot_frame = 1;
             if(particles_left > 0):
                 particles_left -= 1;
                 shoot_particle((mean_radius*3, screen_height), np.array([300,-20]), mean_radius, 1, (255, 0, 0));
-        else:
+        elif(step_frame%physics_multiplier == 0):
             cur_shoot_frame += 1;
         curtime = pygame.time.get_ticks();
         dt = curtime - prev_time;
         prev_time = pygame.time.get_ticks();
         # light_all_pixels();
         # render_blobs(surface);
-        # if(dt != 0):
-        #     print("FPS:", 1000/dt, "dt:", dt, "ms")
+        if(dt != 0 and step_frame%physics_multiplier == 0):
+            print("FPS:", 1000/(dt*physics_multiplier), "dt:", dt*physics_multiplier, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         mousepos = pygame.mouse.get_pos();
         if(cur_mode == 0):
