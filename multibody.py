@@ -6,28 +6,30 @@ from pygame.locals import *
 import time
 import pickle
 import random
+import argparse
+
 # import numba 
 # from numba import jit
 pygame.mixer.pre_init(44100, -16, 2, 512) # setup mixer to avoid sound lag
 pygame.init() #initializes pygame
 
-## USAGE: python3 multibody.py [total_particles]
-## ESC to quit, P to pause, R to reset. Right arrow key to step one (display)frame ahead when paused.
+## USAGE: python3 multibody.py -n [total_particles] -r [mean_radius]
+## ESC to quit, P to pause, R to reset, G to toggle gravity, I to toggle particle creation, C to toggle dynamic particle colors (speed based). 
+## Right arrow key to step one (display)frame ahead when paused.
 physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
 enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
-enable_gravity = True;
+enable_gravity = False;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
-gravity_acceleration = -1150; #this is the acceleration due to gravity in units per second squared.
-
+normal_gravitational_acceleration = -1150;
 elasticity =  1 #means perfectly elastic, 0 means perfectly inelastic.
 if(enable_gravity and elasticity == 1):
     elasticity = 0.9;
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
 slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
-particle_radius_range = (10,20); 
-mean_radius = 15; std_radius = 5;
+particle_radius_range = (5,20); 
+mean_radius = 20; std_radius = 0;
 clock = pygame.time.Clock()
 screen_width = 720; 
 screen_height = 720;
@@ -36,11 +38,11 @@ pygame.mouse.set_visible(0);
 # bg = pygame.image.load("./images/bubble2_large.jpg") #loads background image
 fixed_delta_seconds = 1/framerate;
 total_particles = 100;
-if(len(sys.argv) > 1):
-    total_particles = int(sys.argv[1]);
 #FORCE VARIABLES TO CONSIDER:
 if(enable_gravity == False):
     gravity_acceleration = 0;
+else:
+    gravity_acceleration = normal_gravitational_acceleration;
 #BOUNDING BOX DETAILS:
 #the bounding box is a rectangle that is aligned with the x and y axes.
 lower_boundary = 0;
@@ -54,7 +56,13 @@ mousepos = pygame.mouse.get_pos();
 ForceType = 0; #0 means no force, 1 means inwards force, 2 means outwards force
 #Left click is for inwards force, and right click is for outwards force.
 
-
+parser = argparse.ArgumentParser(description='arguments for generation of particles')
+parser.add_argument('-n', '--total_particles', type=int, default=100, help='total number of particles to be generated')
+parser.add_argument('-r', '--mean_radius', type=int, default=20, help='mean radius of the particles')
+args = parser.parse_args()
+mean_radius = args.mean_radius;
+total_particles = args.total_particles;
+particle_radius_range = (mean_radius - 5, mean_radius);
 def boundary_collision_check(obj):
     collided = False;
     if(obj.pos[1] - obj.radius < lower_boundary):
@@ -65,17 +73,17 @@ def boundary_collision_check(obj):
     if(obj.pos[1] + obj.radius > upper_boundary):
         obj.pos[1] = upper_boundary - obj.radius;
         obj.velocity[1] = - elasticity * obj.velocity[1];
-        collided = True;
+        # collided = True;
 
     if(obj.pos[0] - obj.radius < left_boundary):
         obj.pos[0] = left_boundary + obj.radius;
         obj.velocity[0] = - elasticity * obj.velocity[0];
-        collided = True;
+        # collided = True;
 
     if(obj.pos[0] + obj.radius > right_boundary):
         obj.pos[0] = right_boundary - obj.radius;
         obj.velocity[0] = - elasticity * obj.velocity[0];
-        collided = True;
+        # collided = True;
     return collided;
 
 def lerp(a, b, t):
@@ -129,7 +137,7 @@ class GameObject: #the ultimate class for all objects to derive from
         self.isStatic = False; #if this is true then the object will not move at all.
         self.mass = mass; #the type of block we have, 1 means horizontal bouncing block, and 2 means vertical bouncing block.
         self.cell_index = grid_index_hash(x,y); #this is the cell index that the object is in.
-        
+        self.collided_this_frame = False;
         #The velocity is measured in Pixels/Second.
         self.hidden = False; #if this is true then the object will not be drawn on the screen.
     def update(self, dt):
@@ -145,10 +153,9 @@ class GameObject: #the ultimate class for all objects to derive from
         #first we add the gravity force.
         #We can only do this step IF our object isn't being blocked by something below it.
         #need to add force from the mouse here.
-        if(ForceType == 0):
+        if(ForceType == 0 and self.collided_this_frame == False and enable_gravity == True):
                 self.velocity[1] += gravity_acceleration*dt; #we add the gravity force to the velocity.
         elif(ForceType == 1):
-
             #then we need to add a force towards the mouse.
             mousepos = pygame.mouse.get_pos();
             mousepos = np.array([mousepos[0], screen_height - mousepos[1]]);
@@ -158,12 +165,11 @@ class GameObject: #the ultimate class for all objects to derive from
             direction = (mousepos - self.pos)/dist;
             if(dist < 100):
                 self.velocity += direction*1000*dt/np.sqrt(dist);
-            else:
+            elif(not self.collided_this_frame):
                 self.velocity[1] += gravity_acceleration*dt; #we add the gravity force to the velocity.
         #now we add the velocity to the position.
         self.pos += self.velocity*dt; #we add the velocity to the position.
         #self.set_position(self.pos); #we set the position to the new position.
-        boundary_collision_check(self);
         new_cell_index = grid_index_hash(self.pos[0], self.pos[1]);
         if(new_cell_index != self.cell_index):
             #then we need to update the cell index of the object.
@@ -190,9 +196,9 @@ class GameObject: #the ultimate class for all objects to derive from
         self.velocity[0] = v[0];
         self.velocity[1] = v[1];
     def set_position(self, x, y):
-        self.pos = np.array([x, y]);
+        self.pos = np.array([x, y], dtype='float64');
     def set_position(self, pos):
-        self.pos = pos;
+        self.pos = np.array(pos, dtype='float64');
 
 class particle(GameObject):
     def __init__(self, x:float, y:float, radius, mass = 1, color = (0, 40, 255)):
@@ -204,7 +210,7 @@ class particle(GameObject):
     def draw(self, screen = screen):
         if(enable_dynamic_colors):
             velmag = np.linalg.norm(self.velocity); velmag = max(0, velmag);
-            self.color = tuple(lerp(slow_color, fast_color, np.sqrt(velmag)/25));
+            self.color = tuple(lerp(slow_color, fast_color, np.sqrt(velmag)/35));
         pygame.draw.circle(screen, self.color, self.get_pixel_pos(), self.radius);
 
 class Camera(GameObject):
@@ -258,12 +264,16 @@ def check_all_collisions(dt = 1/framerate):
             return True;
         else:
             return False;
+    cnt = 0;
+    for i in range(len(GameObject.all_gameObjects)):
+        GameObject.all_gameObjects[i].collided_this_frame = boundary_collision_check(GameObject.all_gameObjects[i]); #setting their collision values to this.
     for i in range(len(GameObject.all_gameObjects)):
         cellindex = GameObject.all_gameObjects[i].cell_index; #we get its cell index first. then we check all the objects in the same cell and adjacent cells.
         for (x,y) in nearby_indices(cellindex):
             for j in total_grids[x][y]:
                 if(i == j):
                     continue; #same object.
+                cnt += 1;
                 if(i > len(GameObject.all_gameObjects) or j > len(GameObject.all_gameObjects)):
                     print("ERROR\n\n");
                     raise Exception("Index out of bounds");
@@ -275,7 +285,10 @@ def check_all_collisions(dt = 1/framerate):
                 if(GameObject.all_gameObjects[i].isCamera or GameObject.all_gameObjects[j].isCamera):
                     continue;
                 g0 = GameObject.all_gameObjects[i]; g1 = GameObject.all_gameObjects[j];
-                handle_collision(g0, g1);
+                collided = handle_collision(g0, g1);
+                # if(collided):
+                #     g0.collided_this_frame = True;
+                #     g1.collided_this_frame = True; #we set their collisions to true.
         # for j in range(i+1, len(GameObject.all_gameObjects)):
         #     if(not (GameObject.all_gameObjects[i].collision_layer & GameObject.all_gameObjects[j].collision_layer_mask)):
         #         continue; #if not on same collision layer we continue;
@@ -285,8 +298,8 @@ def check_all_collisions(dt = 1/framerate):
         #         continue;
         #     g0 = GameObject.all_gameObjects[i]; g1 = GameObject.all_gameObjects[j];
         #     handle_collision(g0, g1);
-
-pixel_densities = np.zeros((screen_width, screen_height));
+    print("total collisions checked:", cnt);
+# pixel_densities = np.zeros((screen_width, screen_height));
 
 # @jit(nopython=True)
 def light_up_nearby_pixels(pixpos, radius, pixel_densities):
@@ -313,18 +326,27 @@ def light_all_pixels():
 
 main_camera = Camera(0, 0, screen_width, screen_height); #the one camera that the game will use to render objects on the screen.
 main_camera.hidden = True; main_camera.isStatic = True; #we don't want to do physics on the camera.
+GameObject.all_gameObjects.remove(main_camera); #we remove the camera from the list of gameobjects. 
 
 print("loading world")
 def get_random_particle():
     r = random.gauss(mean_radius, std_radius);
     r = max(r, particle_radius_range[0]); r = min(r, particle_radius_range[1]);
     p = particle(random.uniform(0, screen_width), random.uniform(0, screen_height),r, r**2);
-    p.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
+    p.color = get_random_color();
     p.set_velocity(get_random_vector2(400));
     return p;
 
 def get_random_vector2(lim):
     return np.array([random.uniform(-lim, lim), random.uniform(-lim, lim)]);
+
+def get_random_color():
+    c = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255));
+    normc = c[0]**2 + c[1]**2 + c[2]**2;
+    normc = np.sqrt(normc);
+    c = (255 * c[0]//normc, 255 * c[1]//normc, 255 * c[2]//normc);
+    return c;
+
 
 def shoot_particle(init_pos, init_vel, radius, mass, color):
     p = get_random_particle(); p.set_position(init_pos);
@@ -347,15 +369,17 @@ def render_blobs(surface):
 
 pygame.mouse.set_visible(1);
 def main():
+    global enable_gravity, gravity_acceleration, normal_gravitational_acceleration, elasticity, enable_dynamic_colors;
     global ForceType;
     global mousepos;
     global total_particles;
+    creating_particles = False;
     prev_time = pygame.time.get_ticks();
     cur_mode = 0;
     #surface = pygame.Surface((screen_width, screen_height));
     modes = ["play", "pause"];
     step_frame = 0; played_next_step = False;
-    delay_between_shooting = 5; cur_shoot_frame = 0;
+    delay_between_shooting = 3; cur_shoot_frame = 0;
     particles_left = total_particles;
     while True:
         clock.tick(physics_multiplier*framerate) #sets framerate to 60 fps
@@ -363,7 +387,8 @@ def main():
             cur_shoot_frame = 1;
             if(particles_left > 0):
                 particles_left -= 1;
-                shoot_particle((mean_radius*3, screen_height), np.array([300,-20]), mean_radius, 1, (255, 0, 0));
+            if(particles_left > 0 or creating_particles == True): #we shoot out balls from the top if creating particles is true.
+                shoot_particle((mean_radius*3, screen_height), np.array([500,-100]), mean_radius, 1, (255, 0, 0));
         elif(step_frame%physics_multiplier == 0):
             cur_shoot_frame += 1;
         curtime = pygame.time.get_ticks();
@@ -371,15 +396,16 @@ def main():
         prev_time = pygame.time.get_ticks();
         # light_all_pixels();
         # render_blobs(surface);
-        if(dt != 0 and step_frame%physics_multiplier == 0):
-            print("FPS:", 1000/(dt*physics_multiplier), "dt:", dt*physics_multiplier, "ms")
+        # if(dt != 0 and step_frame%physics_multiplier == 0):
+        #     print("FPS:", 1000/(dt*physics_multiplier), "dt:", dt*physics_multiplier, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         mousepos = pygame.mouse.get_pos();
         if(cur_mode == 0):
+            check_all_collisions(1/(physics_multiplier*framerate));
             for obj in GameObject.all_gameObjects:
                 obj.fixed_update(1/(physics_multiplier*framerate));
             check_all_collisions(1/(physics_multiplier*framerate));
-        
+        # print("max velocity:", max([np.linalg.norm(obj.velocity) for obj in GameObject.all_gameObjects]));
         # screen.blit(surface, (0,0))
         if(played_next_step == True and step_frame == physics_multiplier):
             played_next_step = False;
@@ -419,6 +445,25 @@ def main():
                         played_next_step = True;
                         cur_mode = 0;
                         pass;
+                if event.key == K_g:
+                    enable_gravity = not enable_gravity;
+                    print("gravity is now", enable_gravity);
+                    if(enable_gravity == False):
+                        gravity_acceleration = 0;
+                        elasticity = 0.995;
+                    else:
+                        elasticity = 0.9;
+                        gravity_acceleration = normal_gravitational_acceleration;
+                if event.key == K_i:
+                    creating_particles = not creating_particles;
+                    print("creating particles is now", creating_particles);
+                    print("total particles: ", len(GameObject.all_gameObjects) - 1);
+                if event.key == K_c:
+                    enable_dynamic_colors = not enable_dynamic_colors;
+                    print("dynamic colors is now", enable_dynamic_colors);
+                    if(enable_dynamic_colors == False):
+                        for obj in GameObject.all_gameObjects:
+                            obj.color = get_random_color();
             if event.type == MOUSEBUTTONDOWN:
                 if event.button == 1:
                     ForceType = 1;
