@@ -27,7 +27,7 @@ elasticity =  1 #means perfectly elastic, 0 means perfectly inelastic.
 if(enable_gravity and elasticity == 1):
     elasticity = 0.9;
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
-slow_color = np.array([0,190,255]); fast_color = np.array([255, 10, 40]);
+slow_color = np.array([30,100,255]); fast_color = np.array([255, 40, 0]);
 particle_radius_range = (5,20); 
 mean_radius = 20; std_radius = 0;
 clock = pygame.time.Clock()
@@ -57,8 +57,8 @@ ForceType = 0; #0 means no force, 1 means inwards force, 2 means outwards force
 #Left click is for inwards force, and right click is for outwards force.
 
 parser = argparse.ArgumentParser(description='arguments for generation of particles')
-parser.add_argument('-n', '--total_particles', type=int, default=100, help='total number of particles to be generated')
-parser.add_argument('-r', '--mean_radius', type=int, default=20, help='mean radius of the particles')
+parser.add_argument('-n', '--total_particles', type=int, default=30, help='total number of particles to be generated')
+parser.add_argument('-r', '--mean_radius', type=int, default=15, help='mean radius of the particles')
 args = parser.parse_args()
 mean_radius = args.mean_radius;
 total_particles = args.total_particles;
@@ -298,7 +298,7 @@ def check_all_collisions(dt = 1/framerate):
         #         continue;
         #     g0 = GameObject.all_gameObjects[i]; g1 = GameObject.all_gameObjects[j];
         #     handle_collision(g0, g1);
-    print("total collisions checked:", cnt);
+    # print("total collisions checked:", cnt);
 # pixel_densities = np.zeros((screen_width, screen_height));
 
 # @jit(nopython=True)
