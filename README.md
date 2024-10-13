@@ -17,16 +17,16 @@ Gif usage:
 # GIFs :
 
 ![gravity then no gravity](https://github.com/DhruvAhlawat/Physics-Simulations/blob/e5394c8e140de63e47224ddd69511ad24b271dff/gifs/gravitiy_drop.gif)
-\\
+
 **showing the toggling of "Gravity" and "color" modes on and off **
 ---
 ![Pause and step-by-steo display](https://github.com/DhruvAhlawat/Physics-Simulations/blob/e5394c8e140de63e47224ddd69511ad24b271dff/gifs/pause_display.gif)
-\\
+
 **Pause and step-by-step movement display. Includes direction of velocity**
 
 ---
 ![Mouse hold and pick](https://github.com/DhruvAhlawat/Physics-Simulations/blob/e5394c8e140de63e47224ddd69511ad24b271dff/gifs/mouse_pick.gif)
-\\
+
 **group of balls can be picked up by holding the mouse and dragging**
 
 
