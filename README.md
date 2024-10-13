@@ -29,5 +29,6 @@ Gif usage:
 
 **group of balls can be picked up by holding the mouse and dragging**
 
+# Further steps
 
-                                        
+With the realisation that threading does not work on python due to the GIL, I will move this to a C++ framework, or integrate CUDA programming into this code although I haven't worked with CUDA on python before. But let's see how it turns out. 
