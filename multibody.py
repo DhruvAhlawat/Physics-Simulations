@@ -7,7 +7,7 @@ import time
 import pickle
 import random
 import argparse
-
+from PIL import Image
 # import numba 
 # from numba import jit
 pygame.mixer.pre_init(44100, -16, 2, 512) # setup mixer to avoid sound lag
@@ -19,17 +19,18 @@ pygame.init() #initializes pygame
 physics_multiplier = 2; ## NOTE: If lagging occurs, reduce this parameter to 1. or otherwise reduce framerate below its current value. 
 ## NOTE: this is basically the number of physics steps per frame. on increasing this value, we get more accurate physics.
 
+show_velocities = True; #if this is true then the velocities of the particles will be shown as a line from the center.
 enable_dynamic_colors = True; #if this is true then the colors of the particles will change based on their velocity.
 enable_gravity = False;
 framerate = 64; #sets framerate to 64 FPS. A power of 2 ensures 1/framerate is exact.
 normal_gravitational_acceleration = -1150;
-elasticity =  1 #means perfectly elastic, 0 means perfectly inelastic.
+elasticity =  0.9 #means perfectly elastic, 0 means perfectly inelastic.
 if(enable_gravity and elasticity == 1):
     elasticity = 0.9;
 ## SUGGESTION: If gravity is on, elasticity should be ideally not 1, Otherwise I recommend using elasticity as 1 or slightly greater to not let the energy be lost from the particles
 slow_color = np.array([30,100,255]); fast_color = np.array([255, 40, 0]);
-particle_radius_range = (5,20); 
-mean_radius = 20; std_radius = 0;
+particle_radius_range = (5,25); 
+mean_radius = 15; std_radius = 10;
 clock = pygame.time.Clock()
 screen_width = 720; 
 screen_height = 720;
@@ -146,6 +147,9 @@ class GameObject: #the ultimate class for all objects to derive from
 
     def get_pixel_pos(self):
         return (round(self.pos[0]), round(screen_height - self.pos[1]));
+    
+    def get_screenpos(pos):
+        return (round(pos[0]), round(screen_height - pos[1]));
 
     def fixed_update(self, dt): #this is where we will do all of our physics calculations.
         if(self.isStatic):
@@ -170,6 +174,7 @@ class GameObject: #the ultimate class for all objects to derive from
         #now we add the velocity to the position.
         self.pos += self.velocity*dt; #we add the velocity to the position.
         #self.set_position(self.pos); #we set the position to the new position.
+        boundary_collision_check(self);
         new_cell_index = grid_index_hash(self.pos[0], self.pos[1]);
         if(new_cell_index != self.cell_index):
             #then we need to update the cell index of the object.
@@ -211,7 +216,13 @@ class particle(GameObject):
         if(enable_dynamic_colors):
             velmag = np.linalg.norm(self.velocity); velmag = max(0, velmag);
             self.color = tuple(lerp(slow_color, fast_color, np.sqrt(velmag)/35));
-        pygame.draw.circle(screen, self.color, self.get_pixel_pos(), self.radius);
+        pixpos = self.get_pixel_pos();
+        pygame.draw.circle(screen, self.color, pixpos, self.radius);
+        #Then we will draw an arrow corresponding to its velocity
+        if(show_velocities and cur_mode == 1):
+            vel = self.velocity.copy(); vel[1] = -vel[1];
+            vel = np.round(1.5*self.radius*vel/np.linalg.norm(vel));
+            pygame.draw.line(screen, (255 - self.color[0], 255 - self.color[1], 255 - self.color[2]), pixpos, pixpos + vel, 2);
 
 class Camera(GameObject):
     def __init__(self, x, y, width, height):
@@ -365,44 +376,79 @@ def render_blobs(surface):
     pixarray = np.repeat(pixarray[:, :, np.newaxis], 3, axis=2)
     pygame.surfarray.blit_array(surface, pixarray)
 
+class PygameRecord:
+    def __init__(self, filename: str, fps: int):
+        self.fps = fps
+        self.filename = filename
+        self.frames = []
 
+    def add_frame(self):
+        curr_surface = pygame.display.get_surface()
+        x3 = pygame.surfarray.array3d(curr_surface)
+        x3 = np.moveaxis(x3, 0, 1)
+        array = Image.fromarray(np.uint8(x3))
+        self.frames.append(array)
 
+    def save(self):
+        self.frames[0].save(
+            self.filename,
+            save_all=True,
+            optimize=False,
+            append_images=self.frames[1:],
+            loop=0,
+            duration=int(1000 / self.fps),
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            print(f"An exception of type {exc_type} occurred: {exc_value}")
+        self.save()
+        # Return False if you want exceptions to propagate, True to suppress them
+        return False
+
+cur_mode = 0;
 pygame.mouse.set_visible(1);
 def main():
     global enable_gravity, gravity_acceleration, normal_gravitational_acceleration, elasticity, enable_dynamic_colors;
     global ForceType;
     global mousepos;
     global total_particles;
+    global cur_mode;
     creating_particles = False;
     prev_time = pygame.time.get_ticks();
-    cur_mode = 0;
     #surface = pygame.Surface((screen_width, screen_height));
     modes = ["play", "pause"];
     step_frame = 0; played_next_step = False;
-    delay_between_shooting = 3; cur_shoot_frame = 0;
+    delay_between_shooting = 4; cur_shoot_frame = 0;
     particles_left = total_particles;
+    recorder = PygameRecord(f"gifs/output_{time.time()}.gif", 60);
     while True:
         clock.tick(physics_multiplier*framerate) #sets framerate to 60 fps
-        if(cur_shoot_frame == delay_between_shooting and step_frame%physics_multiplier == 0):
-            cur_shoot_frame = 1;
-            if(particles_left > 0):
-                particles_left -= 1;
-            if(particles_left > 0 or creating_particles == True): #we shoot out balls from the top if creating particles is true.
-                shoot_particle((mean_radius*3, screen_height), np.array([500,-100]), mean_radius, 1, (255, 0, 0));
-        elif(step_frame%physics_multiplier == 0):
-            cur_shoot_frame += 1;
+        if(cur_mode == 0):
+            if(cur_shoot_frame == delay_between_shooting and step_frame%physics_multiplier == 0):
+                cur_shoot_frame = 1;
+                if(particles_left > 0 or creating_particles == True): #we shoot out balls from the top if creating particles is true.
+                    shoot_particle((mean_radius*3, screen_height), np.array([600,-200]), mean_radius, 1, (255, 0, 0));
+                if(particles_left > 0):
+                    particles_left -= 1;
+            elif(step_frame%physics_multiplier == 0):
+                cur_shoot_frame += 1;
         curtime = pygame.time.get_ticks();
         dt = curtime - prev_time;
         prev_time = pygame.time.get_ticks();
         # light_all_pixels();
         # render_blobs(surface);
-        # if(dt != 0 and step_frame%physics_multiplier == 0):
-        #     print("FPS:", 1000/(dt*physics_multiplier), "dt:", dt*physics_multiplier, "ms")
+        if(dt != 0 and step_frame%physics_multiplier == 0):
+            print("FPS:", 1000/(dt*physics_multiplier), "dt:", dt*physics_multiplier, "ms")
         #main_camera.set_focus_area(lerp(main_camera.screen_focus_pos, player_square.pos, 9*dt/1000));
         mousepos = pygame.mouse.get_pos();
         if(cur_mode == 0):
-            check_all_collisions(1/(physics_multiplier*framerate));
+            # check_all_collisions(1/(physics_multiplier*framerate));
             for obj in GameObject.all_gameObjects:
+                # boundary_collision_check(obj);
                 obj.fixed_update(1/(physics_multiplier*framerate));
             check_all_collisions(1/(physics_multiplier*framerate));
         # print("max velocity:", max([np.linalg.norm(obj.velocity) for obj in GameObject.all_gameObjects]));
@@ -418,6 +464,7 @@ def main():
         
         pygame.display.flip(); 
         step_frame += 1;
+        recorder.add_frame(); #we add the frame to the recorder.
         for event in pygame.event.get():
             if event.type == QUIT:
                 pygame.quit()
@@ -440,6 +487,12 @@ def main():
                         obj.velocity = get_random_vector2(400);
                     #player_square.velocity[1] += 200;
                     #player_square.velocity[0] += 200;
+                if event.key == K_s:
+                    print("saving recording");
+                    recorder.save();
+                if event.key == K_q:
+                    print("Starting recording");
+                    recorder = PygameRecord(f"gifs/output_{time.time()}.gif", 60);
                 if event.key == K_RIGHT:
                     if(cur_mode == 1): #Then we need to step one frame ahead. 
                         played_next_step = True;

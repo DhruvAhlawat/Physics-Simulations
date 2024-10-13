@@ -6,4 +6,10 @@ Usage:
     > ESC to quit, P to pause, R to reset, G to toggle gravity, C to toggle Dynamic colors (speed based), I to toggle particle creation. Right arrow key to step one (display)frame ahead when paused.
 
 lastly I plan to add some gifs of the simulations
-                                         
+
+### Update
+I added gifs for the simulations! Now this page doesn't look so dull. Also added gif creation controls
+Gif usage:
+    > press 'Q' to start recording a gif
+    > press 'S' to save the gif. will pause the current simulation display while this proceeds. saves to a file with a unique name in "gifs" folder
+                                        
